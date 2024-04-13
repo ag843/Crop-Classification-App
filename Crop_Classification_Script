@@ -1,0 +1,100 @@
+var rightMap = ui.Map()
+var leftMap = ui.Map()
+var devmap = ui.Map()
+
+// This project attempts to classify cropland from landsat 8 imagery
+var crop_types = ee.ImageCollection("USDA/NASS/CDL")
+var landsat = ee.ImageCollection("LANDSAT/LC08/C02/T1_TOA")
+var train_geo = ee.Geometry.Polygon([[-100.19203034074184,44.15804590214038], [-95.81947174699184,44.15804590214038], [-95.81947174699184,45.26294394271985],[-100.19203034074184,45.26294394271985],[-100.19203034074184,44.15804590214038]])
+var test_geo = ee.Geometry.Polygon([[-100.25038870996286,46.38502852631743],  [-98.63613089746286,46.38502852631743], [-98.63613089746286,46.83784323769634], [-100.25038870996286,46.83784323769634], [-100.25038870996286,46.38502852631743]])
+
+// We will start by predicting which areas are cultivated and then only perform
+// crop type classification in these areas
+var year = 2018
+var label = crop_types.filterDate(ee.Date.fromYMD(year, 1, 1), ee.Date.fromYMD(year+1,1,1)).select("cultivated").mosaic()
+var features = landsat.filterDate(ee.Date.fromYMD(year, 1, 1), ee.Date.fromYMD(year+1,1,1)).mean()
+
+// To start let's limit the geographical scope to an interesting area between S Dakota and Minnesota for training
+// And N Dakota and Minnesota for testing
+// Gather data in that area
+var train_label = label.clip(train_geo).rename("label")
+var train_features = features.clip(train_geo)
+devmap.addLayer(train_label, {min:1, max:2}, "cultivated")
+devmap.addLayer(train_features, {}, "landsat")
+
+var train_data = train_features.addBands(train_label)
+
+// Sample to data table
+var dataTable = train_data.sample({"numPixels":100000, "scale":30})
+print(dataTable.size(), dataTable.limit(10))
+
+// Train model
+var model = ee.Classifier.smileRandomForest(50)
+model = model.train(dataTable, "label")
+
+// Predict on features in new area for inference
+var test_label = label.clip(test_geo).rename("label")
+var test_features = features.clip(test_geo)
+var pred = test_features.classify(model)
+var correct = pred.eq(test_label)
+leftMap.addLayer(test_label, {min:1, max:2}, "label", true, 0.7)
+rightMap.addLayer(correct, {min:0, max:1}, "correct", false)
+rightMap.addLayer(pred, {min:1, max:2}, "predictions", true, 0.7)
+
+// We get a 73% accuracy using this model
+print("Accuracy", correct.reduceRegion({reducer: ee.Reducer.mean(), scale: 1000, maxPixels:300000000}))
+print("Class Imbalance", test_label.eq(2).reduceRegion({reducer: ee.Reducer.mean(), scale:1000, maxPixels:300000000}))
+
+// Create UI
+
+var splitPanel = ui.SplitPanel({
+    firstPanel: leftMap,
+    secondPanel: rightMap,
+    orientation: 'horizontal',
+    wipe:  true
+})
+
+ui.root.clear()
+
+ui.root.add(splitPanel)
+
+var linkPanel = ui.Map.Linker([leftMap, rightMap])
+leftMap.setCenter(-99.3415, 46.72801, 15)
+rightMap.setCenter(-99.3415, 46.72801, 15)
+
+leftMap.setOptions("SATELLITE")
+rightMap.setOptions("SATELLITE")
+
+rightMap.setControlVisibility(
+    {mapTypeControl: false});
+   
+// Add labels to maps
+var lmaplabel = ui.Panel({
+  style:
+      {position: 'top-left',fontSize: '16px', padding: '0'}
+});
+lmaplabel.add(ui.Label('Label'))
+leftMap.add(lmaplabel)
+
+var rmaplabel = ui.Panel({
+  style:
+      {position: 'top-right',fontSize: '16px', padding: '0'}
+});
+rmaplabel.add(ui.Label('Prediction'))
+rightMap.add(rmaplabel)
+
+// Add description panel to map
+var descriptionPanel = ui.Panel({
+  style:
+      {position: 'bottom-right',fontWeight: 'bold', fontSize: '16px', margin: '0 0 0 8px', padding: '10', width: '400px'}
+});
+rightMap.add(descriptionPanel);
+
+var title = ui.Label(
+    'Description',
+    {fontWeight: 'bold', fontSize: '16px', margin: '0 0 4px 0', padding: '10'});
+var description = ui.Label(
+    'This project predicts whether a given piece of land is cultivated using Landsat8 Imagery at 30m resolution. The training data is located in a strip of land contained in the states of South Dakota and Minnesota. Overall, this model attains an accuracy of 70% at classifying cultivated lands',
+    {fontSize: '12px', margin: '0 0 4px 0', padding: '10'});
+descriptionPanel.add(title);
+descriptionPanel.add(description);
