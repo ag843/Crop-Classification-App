@@ -11,7 +11,8 @@ Landsat 8 Data: Uses imagery to predict land cultivation.
 Classification Model: Employs a random forest classifier trained on selected data points.
 Technology Stack
 
-Visit the live application here: Cultivated Land Prediction App. This link will take you to the deployed application where you can view the interactive results and explore the map layers.
+Visit the live application here: https://ee-ashnagupta.projects.earthengine.app/view/cultivate-land-prediction
+Cultivated Land Prediction App. This link will take you to the deployed application where you can view the interactive results and explore the map layers.
 
 
 
